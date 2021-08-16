@@ -1,0 +1,7 @@
+/.idea/
+/venv/
+/vcn-venv/
+
+/demo_fine_tune/
+/evaluation/checkpoints_finetune/
+/finetune_data/sequences/00001/
