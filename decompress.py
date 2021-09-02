@@ -32,6 +32,9 @@ def parse_args():
                         help="Should be same as that of compressor. \n"
                              "Default=7")
 
+    parser.add_argument("--finetune", "-t", default=False, type=bool,
+                        help="Whether regular model, OR\n"
+                             "finetuned model")
 
     parseargs = parser.parse_args()
     return parseargs
@@ -75,6 +78,10 @@ if __name__ == "__main__":
         sess.run(testinit)
         with open(args.model, "rb") as f:
             testnet.set_weights(pkl.load(f))
+
+        if args.finetune:
+            with open(args.model[:-4] + '_finetune_of_weights.pkl', "rb") as f:
+                testnet.ofcomp.set_weights(pkl.load(f))
 
         batch_range = args.frequency + 1
         for i in range(math.ceil(num_frames/args.frequency)):
