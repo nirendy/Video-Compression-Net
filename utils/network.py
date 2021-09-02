@@ -276,17 +276,21 @@ class VideoCompressor(tf.keras.layers.Layer):
     weighted sum of distortion (mismatch in original frame and reconstructed frame) and bitrate of compressed
     optical flow and residue
     """
-    def __init__(self, training=True, *args, **kwargs):
+    def __init__(self, training=True, finetune=False, *args, **kwargs):
         """
         training = True for training and False for evaluation
         *args, **kwargs = Other arguments and keyword arguments passed to superclass
         """
         self.training = training
+        self.finetune = finetune
         super(VideoCompressor, self).__init__(*args, **kwargs)
 
     def build(self, input_shape):
         self.ofnet = SpyNetwork()
-        self.ofcomp = ImageCompressor(num_channels=2, num_filters=128, training=self.training)
+        if self.finetune:
+          self.ofcomp = ImageCompressor(num_channels=2, num_filters=128, training=False)
+        else:
+          self.ofcomp = ImageCompressor(num_channels=2, num_filters=128, training=self.training)
         self.rescomp = ImageCompressor(num_channels=3, num_filters=128, training=self.training)
         super(VideoCompressor, self).build(input_shape)
 
