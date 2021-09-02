@@ -5,6 +5,7 @@ from PIL import Image
 import os
 import pickle as pkl
 import argparse
+import os, os.path
 
 tf.logging.set_verbosity(tf.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -52,15 +53,9 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    net = VideoCompressor()
+    net = VideoCompressor(finetune=True)
     subdircount = len(os.listdir(args.input))
     print('Starting')
-    # if args.input[-1] is not '/':
-    #     args.input += '/'
-    #
-    #
-    # for item in os.listdir(args.input):
-    #     subdircount += 1
 
     tfprvs = tf.placeholder(tf.float32, shape=[4, 240, 416, 3], name="first_frame")
     tfnext = tf.placeholder(tf.float32, shape=[4, 240, 416, 3], name="second_frame")
@@ -96,76 +91,48 @@ if __name__ == "__main__":
         if starting:
             saver.restore(sess, args.chkfile)
 
-        # net.summary()
-
-        lr = 1e-4
+        lr = 1e-6
         lmda = args.lamda
 
         print("lr={}, lambda = {}".format(lr, lmda))
         load_dir = directory.eval() if starting else 1
 
-        for i in range(load_dir, subdircount + 1):
-            subdir = os.path.join(args.input, str(i).zfill(5))
-            subsubdircount = len(os.listdir(subdir))
-            # for item in os.listdir(subdir):
-            #     subsubdircount += 1
+        num_of_pictures = len(
+            [name for name in os.listdir(args.input) if os.path.isfile(os.path.join(args.input, name))])
 
-            start_video_batch = tfvideo_batch.eval() if starting else 0
+        for fine_tune_i in range(1):
+            print(f"fine_tune_i: {fine_tune_i}")
 
-            num_video_batch = subsubdircount // 4
-            starting = False
+            # for i in range(0, num_of_pictures-6, 8):
+            for i in range(0, 1, 8):
+                print("Picture number " + str(i + 1))
+                for batch in range(1, 8):
+                    print(f"batch: {batch}")
+                    bat = os.path.join(args.input, 'im' + str(i + batch) + '.png')
+                    bat = np.array(Image.open(bat)).astype(np.float32) * (1.0 / 255.0)
+                    bat = np.expand_dims(bat, axis=0)
+                    for item in range(2, 5):
+                        img = os.path.join(args.input, 'im' + str(i + batch) + '.png')
+                        img = np.array(Image.open(img)).astype(np.float32) * (1.0 / 255.0)
+                        img = np.expand_dims(img, axis=0)
+                        bat = np.concatenate((bat, img), axis=0)
 
-            if i >= 70:
-                lr = 1e-7
+                    if batch == 1:
+                        prevReconstructed = bat
 
-            elif i >= 46:
-                lr = 1e-6
+                    else:
+                        recloss, rate, rec, _, _, _, _, _ = sess.run([mse, bpp, recon, train, aux_step1,
+                                                                      net.ofcomp.entropy_bottleneck.updates[0],
+                                                                      aux_step2,
+                                                                      net.rescomp.entropy_bottleneck.updates[0]],
+                                                                     feed_dict={tfprvs: prevReconstructed,
+                                                                                tfnext: bat, l_r: lr,
+                                                                                lamda: lmda})
+                        prevReconstructed = rec
 
-            elif i >= 22:
-                lr = 1e-5
+                increment_video_batch.op.run()
+                print("recon loss = {:.8f}, bpp = {:.8f}".format(recloss, rate))
 
-            for fine_tune_i in range(3):
-                print(f"fine_tune_i: {fine_tune_i}")
-                for video_batch in range(start_video_batch, num_video_batch):
-                    print(f"video_batch: {video_batch}")
-                    for batch in range(1, 8):
-                        print(f"batch: {batch}")
-                        bat = os.path.join(subdir, str(4 * video_batch + 1).zfill(4), 'im' + str(batch) + '.png')
-                        bat = np.array(Image.open(bat)).astype(np.float32) * (1.0 / 255.0)
-                        bat = np.expand_dims(bat, axis=0)
-                        for item in range(2, 5):
-                            img = os.path.join(subdir, str(4 * video_batch + item).zfill(4), 'im' + str(batch) + '.png')
-                            img = np.array(Image.open(img)).astype(np.float32) * (1.0 / 255.0)
-                            img = np.expand_dims(img, axis=0)
-                            bat = np.concatenate((bat, img), axis=0)
+            pkl.dump(net.ofcomp.get_weights(), open(args.pklfile[:-4] + '_finetune_of_weights.pkl', "wb"))
+            saver.save(sess, args.chkfile)
 
-                        if batch == 1:
-                            prevReconstructed = bat
-
-                        else:
-                            recloss, rate, rec, _, _, _, _, _ = sess.run([mse, bpp, recon, train, aux_step1,
-                                                                          net.ofcomp.entropy_bottleneck.updates[0],
-                                                                          aux_step2,
-                                                                          net.rescomp.entropy_bottleneck.updates[0]],
-                                                                         feed_dict={tfprvs: prevReconstructed,
-                                                                                    tfnext: bat, l_r: lr,
-                                                                                    lamda: lmda})
-                            prevReconstructed = rec
-
-                    increment_video_batch.op.run()
-                    print("recon loss = {:.8f}, bpp = {:.8f}, video = {}, directory = {}".format(recloss,
-                                                                                                 rate,
-                                                                                                 video_batch,
-                                                                                                 i))
-                    # print(tfvideo_batch.eval(), directory.eval())
-                    if video_batch % args.frequency == 0:
-                        pkl.dump(net.get_weights(), open(args.pklfile, "wb"))
-                        saver.save(sess, args.chkfile)
-
-                pkl.dump(net.get_weights(), open(args.pklfile, "wb"))
-                saver.save(sess, args.chkfile)
-
-                init_video_batch_updater.op.run()
-                increment_directory.op.run()
-
-        init_directory_updater.op.run()
