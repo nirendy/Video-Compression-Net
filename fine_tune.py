@@ -133,6 +133,5 @@ if __name__ == "__main__":
                 increment_video_batch.op.run()
                 print("recon loss = {:.8f}, bpp = {:.8f}".format(recloss, rate))
 
-            pkl.dump(net.ofcomp.get_weights(), open(args.pklfile[:-4] + '_finetune_of_weights.pkl', "wb"))
+            pkl.dump(net.rescomp.get_weights(), open(args.pklfile[:-4] + '_finetune_rescomp_weights.pkl', "wb"))
             saver.save(sess, args.chkfile)
-
