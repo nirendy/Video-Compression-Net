@@ -276,13 +276,14 @@ class VideoCompressor(tf.keras.layers.Layer):
     weighted sum of distortion (mismatch in original frame and reconstructed frame) and bitrate of compressed
     optical flow and residue
     """
-    def __init__(self, training=True, finetune=False, *args, **kwargs):
+    def __init__(self, training=True, finetune=False, is_mse=True, *args, **kwargs):
         """
         training = True for training and False for evaluation
         *args, **kwargs = Other arguments and keyword arguments passed to superclass
         """
         self.training = training
         self.finetune = finetune
+        self.is_mse = is_mse
         super(VideoCompressor, self).__init__(*args, **kwargs)
 
     def build(self, input_shape):
@@ -302,8 +303,10 @@ class VideoCompressor(tf.keras.layers.Layer):
         reconres = self.rescomp(res)
         recon_image = motionCompensated + reconres[0]
         clipped_recon_image = tf.clip_by_value(recon_image, 0, 1)
-        mse_loss = tf.reduce_mean(tf.math.squared_difference(recon_image, tensecond))
-        # mse_loss = 1 - tf.math.reduce_mean(tf.image.ssim_multiscale(clipped_recon_image, tensecond, max_val=1))
+        if self.is_mse:
+            mse_loss = tf.reduce_mean(tf.math.squared_difference(recon_image, tensecond))
+        else:
+            mse_loss = 1 - tf.math.reduce_mean(tf.image.ssim_multiscale(clipped_recon_image, tensecond, max_val=1))
         # comment the uncommented mse_loss and uncomment the commented mse_loss to use MS-SSIM as recontruction loss
         # rather than MSE loss
         total_bits_feature = reconres[1] + reconflow[1]

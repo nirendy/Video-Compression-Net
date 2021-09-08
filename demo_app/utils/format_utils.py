@@ -1,3 +1,7 @@
+import pathlib
+import re
+
+
 def humanbytes(B):
     'Return the given bytes as a human friendly KB, MB, GB, or TB string'
     B = float(B)
@@ -16,3 +20,11 @@ def humanbytes(B):
         return '{0:.2f} GB'.format(B / GB)
     elif TB <= B:
         return '{0:.2f} TB'.format(B / TB)
+
+
+def get_int_from_string(s: str) -> int:
+    return int(re.sub('\D', '', s))
+
+
+def get_int_from_path(p: pathlib.Path) -> int:
+    return get_int_from_string(p.name)

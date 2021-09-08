@@ -1,6 +1,9 @@
 import pathlib
 
 import tensorflow.compat.v1 as tf
+
+from demo_app.utils.file_utils import get_image_shape
+from demo_app.utils.file_utils import get_frame_paths
 from utils import VideoCompressor
 import numpy as np
 from PIL import Image
@@ -68,9 +71,9 @@ def parse_args():
 def fine_tune(
         input_dir,
         weights_pklfile,
-        chkfile=None,
+        learning_rate=1e-6,
         train_lamda=1024,
-        should_restore=False,
+        fine_tune_iterations=1,
         weights_pklfile_out=None
 ):
     if weights_pklfile_out is None:
@@ -78,12 +81,15 @@ def fine_tune(
 
     pathlib.Path(weights_pklfile_out).parent.mkdir()
 
-    net = VideoCompressor(finetune=True)
-    subdircount = len(os.listdir(input_dir))
-    print('Starting')
+    net = VideoCompressor(
+        finetune=True,
+        is_mse=('msssim' not in str(weights_pklfile))
+    )
 
-    tfprvs = tf.placeholder(tf.float32, shape=[4, 240, 416, 3], name="first_frame")
-    tfnext = tf.placeholder(tf.float32, shape=[4, 240, 416, 3], name="second_frame")
+    print('Starting')
+    h, w, d = get_image_shape(get_frame_paths(input_dir)[0])
+    tfprvs = tf.placeholder(tf.float32, shape=[4, h, w, d], name="first_frame")
+    tfnext = tf.placeholder(tf.float32, shape=[4, h, w, d], name="second_frame")
 
     l_r = tf.placeholder(tf.float32, shape=[], name='learning_rate')
     lamda = tf.placeholder(tf.int16, shape=[], name="train_lambda")
@@ -94,77 +100,56 @@ def fine_tune(
     aux_step1 = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(net.ofcomp.entropy_bottleneck.losses[0])
     aux_step2 = tf.train.AdamOptimizer(learning_rate=1e-4).minimize(net.rescomp.entropy_bottleneck.losses[0])
 
-    tfvideo_batch = tf.get_variable("tfvideo_batch", initializer=tf.constant(0))
-    increment_video_batch = tf.assign(tfvideo_batch, tfvideo_batch + 1)
-    directory = tf.get_variable("directory", initializer=tf.constant(1))
-
-    increment_directory = tf.assign(directory, directory + 1)
-    init_video_batch_updater = tf.assign(tfvideo_batch, 0)
-    init_directory_updater = tf.assign(directory, 1)
-
     init = tf.global_variables_initializer()
-
-    saver = tf.train.Saver()
-
-    starting = should_restore
 
     print('Starting Session')
     with tf.Session() as sess:
         sess.run(init)
         with open(weights_pklfile, "rb") as f:
             net.set_weights(pkl.load(f))
-        if starting:
-            saver.restore(sess, chkfile)
 
-        lr = 1e-6
+        lr = learning_rate
         lmda = train_lamda
 
         print("lr={}, lambda = {}".format(lr, lmda))
-        load_dir = directory.eval() if starting else 1
 
         num_of_pictures = len(
             [name for name in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, name))]
         )
 
-        for fine_tune_i in range(1):
-            print(f"fine_tune_i: {fine_tune_i}")
+        for fine_tune_i in range(fine_tune_iterations):
+            print(f"fine_tune_i: {fine_tune_i + 1} / {fine_tune_iterations}")
 
-            # for i in range(0, num_of_pictures-6, 8):
-            for i in range(0, 1, 8):
-                print("Picture number " + str(i + 1))
-                for batch in range(1, 8):
-                    print(f"batch: {batch}")
-                    bat = os.path.join(input_dir, 'im' + str(i + batch) + '.png')
-                    bat = np.array(Image.open(bat)).astype(np.float32) * (1.0 / 255.0)
-                    bat = np.expand_dims(bat, axis=0)
-                    for item in range(2, 5):
-                        img = os.path.join(input_dir, 'im' + str(i + batch) + '.png')
-                        img = np.array(Image.open(img)).astype(np.float32) * (1.0 / 255.0)
-                        img = np.expand_dims(img, axis=0)
-                        bat = np.concatenate((bat, img), axis=0)
+            for frame_i in range(1, num_of_pictures + 1):
+                print("Picture number " + str(frame_i))
+                bat = os.path.join(input_dir, f'im{frame_i}.png')
+                bat = np.array(Image.open(bat)).astype(np.float32) * (1.0 / 255.0)
+                bat = np.expand_dims(bat, axis=0)
+                for item in range(2, 5):
+                    img = os.path.join(input_dir, f'im{frame_i}.png')
+                    img = np.array(Image.open(img)).astype(np.float32) * (1.0 / 255.0)
+                    img = np.expand_dims(img, axis=0)
+                    bat = np.concatenate((bat, img), axis=0)
 
-                    if batch == 1:
-                        prevReconstructed = bat
+                if frame_i == 1:
+                    prevReconstructed = bat
+                else:
+                    recloss, rate, rec, _, _, _, _, _ = sess.run(
+                        [mse, bpp, recon, train, aux_step1,
+                         net.ofcomp.entropy_bottleneck.updates[0],
+                         aux_step2,
+                         net.rescomp.entropy_bottleneck.updates[0]],
+                        feed_dict={
+                            tfprvs: prevReconstructed,
+                            tfnext: bat, l_r: lr,
+                            lamda: lmda
+                        }
+                    )
+                    prevReconstructed = rec
 
-                    else:
-                        recloss, rate, rec, _, _, _, _, _ = sess.run(
-                            [mse, bpp, recon, train, aux_step1,
-                             net.ofcomp.entropy_bottleneck.updates[0],
-                             aux_step2,
-                             net.rescomp.entropy_bottleneck.updates[0]],
-                            feed_dict={
-                                tfprvs: prevReconstructed,
-                                tfnext: bat, l_r: lr,
-                                lamda: lmda
-                            }
-                        )
-                        prevReconstructed = rec
-
-                increment_video_batch.op.run()
-                print("recon loss = {:.8f}, bpp = {:.8f}".format(recloss, rate))
+                    print("recon loss = {:.8f}, bpp = {:.8f}".format(recloss, rate))
 
             pkl.dump(net.rescomp.get_weights(), open(weights_pklfile_out, "wb"))
-            saver.save(sess, chkfile)
 
 
 if __name__ == "__main__":
@@ -174,5 +159,4 @@ if __name__ == "__main__":
         weights_pklfile=args.pklfile,
         chkfile=args.chkfile,
         train_lamda=args.lamda,
-        should_restore=args.restore,
     )

@@ -2,8 +2,6 @@ import tensorflow.compat.v1 as tf
 import math
 import os
 import pathlib
-import re
-import shutil
 from typing import List
 
 import numpy as np
@@ -15,6 +13,9 @@ from decompress import decompress
 from demo_app.consts import CHECKPOINTS_PATH
 from demo_app.consts import FINETUNE_PREFIX
 from demo_app.consts import VIDEO_DATASET_PATH, WORKING_DIR_PATH
+from demo_app.utils.file_utils import copytree
+from demo_app.utils.file_utils import get_frame_paths
+from demo_app.utils.format_utils import get_int_from_path
 from fine_tune import fine_tune
 from utils import write_png
 
@@ -28,31 +29,15 @@ def _get_demo_cache() -> pathlib.Path:
 
 
 def get_videos_names() -> List[pathlib.Path]:
-    return list(_get_dataset_dir().glob('*/*'))
-
-
-def get_frame_paths(p) -> List[pathlib.Path]:
-    images = list(p.iterdir())
-    return sorted(images, key=lambda x: int(re.sub('\D', '', x.name)))
-
+    return list(_get_dataset_dir().glob('*'))
 
 @st.cache()
 def get_available_checkpoints_weights() -> List[pathlib.Path]:
     checkpoint_dir = pathlib.Path(os.getcwd()) / CHECKPOINTS_PATH
     return sorted(
         list(checkpoint_dir.glob('video*')),
-        key=lambda x: int(re.sub('\D', '', x.name))
+        key=get_int_from_path
     )
-
-
-def copytree(src, dst, symlinks=False, ignore=None):
-    for item in os.listdir(src):
-        s = os.path.join(src, item)
-        d = os.path.join(dst, item)
-        if os.path.isdir(s):
-            shutil.copytree(s, d, symlinks, ignore)
-        else:
-            shutil.copy2(s, d)
 
 
 class Demo:
@@ -80,11 +65,7 @@ class Demo:
     def reconstructed_diff_path(self):
         return self.demo_path / 'reconstructed_diff'
 
-    @property
-    def fine_tune_check_file_path(self):
-        return self.fine_tune_path / 'videocomp.chk'
-
-    def get_finetune_weights(self):
+    def get_finetune_weights(self) -> pathlib.Path:
         return list(self.fine_tune_path.glob(FINETUNE_PREFIX + '*'))[0]
 
     def get_frequency(self) -> int:
@@ -102,7 +83,14 @@ class Demo:
         first_frame = next(self.input_path.iterdir())
         return np.array(Image.open(first_frame)).shape
 
-    def run(self, weight_file=None, frequency: int = None):
+    def run(
+            self,
+            weight_file: pathlib.Path = None,
+            frequency: int = None,
+            learning_rate: float = None,
+            fine_tune_iterations: int = None
+    ):
+
         finetuned_weights = (
             self.get_finetune_weights()
             if weight_file is None
@@ -116,9 +104,12 @@ class Demo:
             fine_tune(
                 input_dir=self.input_path,
                 weights_pklfile=weight_file,
-                chkfile=str(self.fine_tune_check_file_path),
-                weights_pklfile_out=finetuned_weights
+                train_lamda=get_int_from_path(weight_file),
+                weights_pklfile_out=finetuned_weights,
+                learning_rate=learning_rate,
+                fine_tune_iterations=fine_tune_iterations
             )
+
         if not self.compression_path.exists():
             compress(
                 args_output=self.compression_path,
@@ -138,7 +129,6 @@ class Demo:
             )
 
         if not self.reconstructed_diff_path.exists():
-            print('calculating diff')
             input_frame_paths = get_frame_paths(self.input_path)
             reconstructed_path = get_frame_paths(self.reconstructed_path)
             self.reconstructed_diff_path.mkdir()
