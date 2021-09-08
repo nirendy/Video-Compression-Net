@@ -7,46 +7,61 @@ import pickle as pkl
 import argparse
 import os
 import math
+
 tf.logging.set_verbosity(tf.logging.ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", "-m", default="checkpoints/videocompressor1024.pkl",
-                        help="Saved model that you want to decompress with. Should be same\n"
-                             "as the model used in compression step for better reconstruction\n"
-                             "Default=`checkpoints/videocompressor1024.pkl`")
+    parser.add_argument(
+        "--model", "-m", default="checkpoints/videocompressor1024.pkl",
+        help="Saved model that you want to decompress with. Should be same\n"
+             "as the model used in compression step for better reconstruction\n"
+             "Default=`checkpoints/videocompressor1024.pkl`"
+    )
 
-    parser.add_argument("--input", "-i", default="demo/compressed/",
-                        help="Directory where compressed files lie and what you want to decompress\n"
-                             "Default=`demo/compressed/`")
+    parser.add_argument(
+        "--input", "-i", default="demo/compressed/",
+        help="Directory where compressed files lie and what you want to decompress\n"
+             "Default=`demo/compressed/`"
+    )
 
-    parser.add_argument("--output", "-o", default="demo/reconstructed/",
-                        help="Directory where you want the reconstructed frames to be saved\n"
-                             "Warning: Output directory might have previously reconstructed frames\n"
-                             "which might be deceived as currently reconstructed frames.\n"
-                             "Default=`demo/reconstructed/`")
+    parser.add_argument(
+        "--output", "-o", default="demo/reconstructed/",
+        help="Directory where you want the reconstructed frames to be saved\n"
+             "Warning: Output directory might have previously reconstructed frames\n"
+             "which might be deceived as currently reconstructed frames.\n"
+             "Default=`demo/reconstructed/`"
+    )
 
-    parser.add_argument("--frequency", "-f", type=int, default=7,
-                        help="Should be same as that of compressor. \n"
-                             "Default=7")
+    parser.add_argument(
+        "--frequency", "-f", type=int, default=7,
+        help="Should be same as that of compressor. \n"
+             "Default=7"
+    )
 
-    parser.add_argument("--finetune", "-t", default=False, type=bool,
-                        help="Whether regular model, OR\n"
-                             "finetuned model")
+    parser.add_argument(
+        "--finetune", "-t", default=False, type=bool,
+        help="Whether regular model, OR\n"
+             "finetuned model"
+    )
 
     parseargs = parser.parse_args()
     return parseargs
 
 
-if __name__ == "__main__":
-    args = parse_args()
+def decompress(
+        args_output,
+        args_input,
+        args_model,
+        args_finetune_model,
+        args_frequency,
+):
+    if not os.path.exists(args_output):
+        os.mkdir(args_output)
 
-    if not os.path.exists(args.output):
-        os.mkdir(args.output)
-
-    w, h, _ = np.array(Image.open(os.path.join(args.input + "1.png"))).shape
+    w, h, _ = np.array(Image.open(os.path.join(args_input, "1.png"))).shape
     testnet = VideoCompressor(training=False)
     testtfprvs = tf.placeholder(tf.float32, shape=[1, w, h, 3], name="testfirst_frame")
 
@@ -61,14 +76,14 @@ if __name__ == "__main__":
     rex_shape = tf.placeholder(tf.int32, [2], name="compressed_residue_lengthx")
     rey_shape = tf.placeholder(tf.int32, [2], name="compressed_residue_lengthy")
 
-    testnet(testtfprvs, testtfprvs) #required to call call() to call build()
+    testnet(testtfprvs, testtfprvs)  # required to call call() to call build()
 
     recimage = testnet.decompress(testtfprvs, compflow, cfx_shape, cfy_shape, compres, rex_shape, rey_shape)
 
     testinit = tf.global_variables_initializer()
 
     num_frames = 0
-    for item in os.listdir(args.input):
+    for item in os.listdir(args_input):
         if ".png" in item:
             num_frames += 1
         elif "of" in item:
@@ -76,26 +91,28 @@ if __name__ == "__main__":
 
     with tf.Session() as sess:
         sess.run(testinit)
-        with open(args.model, "rb") as f:
+        with open(args_model, "rb") as f:
             testnet.set_weights(pkl.load(f))
 
-        if args.finetune:
-            with open(args.model[:-4] + '_finetune_rescomp_weights.pkl', "rb") as f:
+        if args_finetune_model is not None:
+            with open(args_finetune_model, "rb") as f:
                 testnet.rescomp.set_weights(pkl.load(f))
 
-        batch_range = args.frequency + 1
-        for i in range(math.ceil(num_frames/args.frequency)):
-            tenFirst = np.array(Image.open(os.path.join(args.input , str(i * args.frequency + 1) + '.png'))).astype(np.float32) * (1.0 / 255.0)
+        batch_range = args_frequency + 1
+        for i in range(math.ceil(num_frames / args_frequency)):
+            tenFirst = np.array(Image.open(os.path.join(args_input, str(i * args_frequency + 1) + '.png'))).astype(
+                np.float32
+            ) * (1.0 / 255.0)
             tenFirst = np.expand_dims(tenFirst, axis=0)
-            sess.run(write_png(args.output + str(i * args.frequency +1) + ".png", tenFirst))
+            sess.run(write_png(os.path.join(args_output, str(i * args_frequency + 1) + ".png"), tenFirst))
 
-            if i == math.ceil(num_frames/args.frequency) -1 and num_frames % args.frequency != 0:
-                batch_range = num_frames % args.frequency + 1
+            if i == math.ceil(num_frames / args_frequency) - 1 and num_frames % args_frequency != 0:
+                batch_range = num_frames % args_frequency + 1
 
             for batch in range(2, batch_range):
-                with open(os.path.join(args.input, 'of' + str(i * args.frequency + batch - 1) + '.vcn'), "rb") as f:
+                with open(os.path.join(args_input, 'of' + str(i * args_frequency + batch - 1) + '.vcn'), "rb") as f:
                     flowpacked = tfc.PackedTensors(f.read())
-                with open(os.path.join(args.input, "res" + str(i * args.frequency + batch - 1) + '.vcn'), "rb") as f:
+                with open(os.path.join(args_input, "res" + str(i * args_frequency + batch - 1) + '.vcn'), "rb") as f:
                     respacked = tfc.PackedTensors(f.read())
 
                 flowtensors = [compflow, cfx_shape, cfy_shape]
@@ -107,4 +124,15 @@ if __name__ == "__main__":
                 fd.update(dict(zip(restensors, resarrays)))
                 fd.update(dict({testtfprvs: tenFirst}))
                 tenFirst = sess.run(recimage, feed_dict=fd)
-                sess.run(write_png(os.path.join(args.output, str(i * args.frequency + batch) + '.png'), tenFirst))
+                sess.run(write_png(os.path.join(args_output, str(i * args_frequency + batch) + '.png'), tenFirst))
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    decompress(
+        args_output=args.output,
+        args_input=args.input,
+        args_model=args.model,
+        args_finetune_model=None if args.finetune is None else (args.model[:-4] + '_finetune_rescomp_weights.pkl'),
+        args_frequency=args.frequency,
+    )
