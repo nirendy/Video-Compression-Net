@@ -3,7 +3,7 @@ import pathlib
 import tensorflow.compat.v1 as tf
 
 from demo_app.utils.file_utils import get_image_shape
-from demo_app.utils.file_utils import get_frame_paths
+from demo_app.utils.file_utils import get_frames_paths
 from utils import VideoCompressor
 import numpy as np
 from PIL import Image
@@ -87,7 +87,7 @@ def fine_tune(
     )
 
     print('Starting')
-    h, w, d = get_image_shape(get_frame_paths(input_dir)[0])
+    h, w, d = get_image_shape(get_frames_paths(input_dir)[0])
     tfprvs = tf.placeholder(tf.float32, shape=[4, h, w, d], name="first_frame")
     tfnext = tf.placeholder(tf.float32, shape=[4, h, w, d], name="second_frame")
 

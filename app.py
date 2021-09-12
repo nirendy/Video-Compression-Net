@@ -1,22 +1,29 @@
 import math
+import pathlib
 import time
+from typing import List
 
 import streamlit as st
-
+from demo_app.stores.demo_state import Demo
 import demo_app.utils.file_utils
+import demo_app.utils.video_dataset as VideoDataset
 from demo_app.components.text_with_predefined import select_input_text
 from demo_app.consts.locale import Locale
-import demo_app.utils.video_dataset as VideoDataset
 from demo_app.stores import AppStateKeys
 from demo_app.stores.app_state import AppState
 from demo_app.utils.file_utils import get_dir_size
 from demo_app.utils.file_utils import get_file_size
+from demo_app.utils.file_utils import get_frames_paths
 from demo_app.utils.file_utils import get_image_shape
 from demo_app.utils.format_utils import humanbytes
 from demo_app.utils.video_dataset import get_available_checkpoints_weights
-from demo_app.utils.file_utils import get_frame_paths
+from evaluation.psnr_msssim_calc import psnr_mssim_calc
 
 ROWS_IN_PAGE = 5
+
+
+# import tensorflow as tf
+# tf.debugging.set_log_device_placement(True)
 
 
 def show_videos(col_name_video_path_tuples, image_speed):
@@ -88,6 +95,11 @@ def show_videos(col_name_video_path_tuples, image_speed):
             time.sleep(image_speed)
 
 
+@st.cache()
+def cached_psnr_mssim_calc(frames_path1: List[pathlib.Path], frames_path2: List[pathlib.Path]):
+    return psnr_mssim_calc(str(frames_path1), str(frames_path2))
+
+
 if __name__ == "__main__":
     st.set_page_config(
         page_title=Locale.app_title, page_icon=":memo:",
@@ -95,12 +107,17 @@ if __name__ == "__main__":
     )
 
     with st.sidebar:
-        demo_name = st.text_input('Demo Name', value='try1')
+        demo_name = AppState().get_or_create_by_key(AppStateKeys.demo_name, 'basketball1')
+        select_input_text(
+            AppState().prefix_field(AppStateKeys.demo_name),
+            'Demo Name',
+            options=VideoDataset.get_exising_demos_names()
+            )
         image_speed = st.number_input('Image Speed', min_value=0.0, value=0.0, step=0.01)
 
     if not demo_name:
         st.stop()
-    demo = VideoDataset.Demo(demo_name)
+    demo = Demo(demo_name)
 
     if not demo.input_path.exists():
         cols = st.columns([0.4, 0.2, 0.2, 0.1, 0.1])
@@ -110,15 +127,15 @@ if __name__ == "__main__":
             format_func=lambda v: f"{v.parent.name}/{v.name}"
         )
 
-        if cols[4].button('Load Video'):
-            demo.load_input_video(chosen_video)
-            st.experimental_rerun()
-
-        frames = list(demo_app.utils.file_utils.get_frame_paths(chosen_video))
+        frames = demo_app.utils.file_utils.get_frames_paths(chosen_video)
         frames_count = len(frames)
-        start = cols[1].slider(label='a', min_value=1, max_value=frames_count - 1, value=1)
-        end = cols[2].slider(label='a', min_value=start + 1, max_value=frames_count, value=frames_count)
+        start = cols[1].slider(label='First Frame', min_value=1, max_value=frames_count - 1, value=1)
+        end = cols[2].slider(label='Last Frame', min_value=start + 1, max_value=frames_count, value=frames_count)
+
         st.write(get_image_shape(frames[0]))
+        if cols[4].button('Load Video'):
+            demo.load_input_video(frames[start - 1:end])
+            st.experimental_rerun()
 
         show_videos([('', frames[start:end])], image_speed)
         st.stop()
@@ -129,9 +146,13 @@ if __name__ == "__main__":
         weight_file = None
         fine_tune_iterations = None
         finetune_learning_rate = None
+        if demo.fine_tune_hyper_params_path.exists():
+            hyper_params = demo.load_fine_tune_hyper_params()
+            for key, val in hyper_params.items():
+                st.write(f"{key}: ", val)
         if demo.fine_tune_path.exists():
             fine_tuned_weight_file = demo.get_finetune_weights()
-            st.write(f"Weight File is = {fine_tuned_weight_file.name[10 + 15:][:-4]}")
+            st.write(f"Weight File: ", fine_tuned_weight_file.name[10 + 15:][:-4])
         else:
             weight_file = st.selectbox(
                 label="Choose Weight file",
@@ -174,6 +195,10 @@ if __name__ == "__main__":
         st.write(f"Input Size = {humanbytes(get_dir_size(demo.input_path))}")
     if demo.reconstructed_path.exists():
         st.write(f"Reconstructed Size = {humanbytes(get_dir_size(demo.reconstructed_path))}")
+        psnr, mssim = cached_psnr_mssim_calc(demo.input_path, demo.reconstructed_path)
+        st.write('psnr', psnr)
+        st.write('mssim', mssim)
+
     if demo.compression_path.exists() and demo.fine_tune_path.exists():
         compression_size = get_dir_size(demo.compression_path) + get_dir_size(demo.fine_tune_path)
         st.write(f"Compression Size = {humanbytes(compression_size)}")
@@ -204,7 +229,7 @@ if __name__ == "__main__":
 
     show_videos(
         [
-            (chosen_col[0], get_frame_paths(chosen_col[1]))
+            (chosen_col[0], get_frames_paths(chosen_col[1]))
             for chosen_col in chosen_columns
         ], image_speed
     )

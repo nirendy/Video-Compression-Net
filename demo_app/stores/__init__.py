@@ -5,7 +5,7 @@ import streamlit as st
 
 
 class AppStateKeys(Enum):
-    selected_checkpoint = 0
+    demo_name = 0
 
 
 from typing import Generic, TypeVar

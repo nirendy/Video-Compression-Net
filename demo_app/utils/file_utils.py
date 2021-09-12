@@ -35,6 +35,6 @@ def get_dir_size(p: pathlib.Path) -> int:
     return total_size
 
 
-def get_frame_paths(p) -> List[pathlib.Path]:
+def get_frames_paths(p) -> List[pathlib.Path]:
     images = list(p.iterdir())
     return sorted(images, key=get_int_from_path)

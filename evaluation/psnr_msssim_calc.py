@@ -14,29 +14,27 @@ def parse_args():
         "--input", "-i", default="demo/input/",
         help="Folder1\n"
              "Default=`demo/input/`"
-        )
+    )
     parser.add_argument(
         "--output", "-o", default="demo/input/",
         help="Folder2\n"
              "Default=`demo/input/`"
-        )
+    )
 
     parseargs = parser.parse_args()
     return parseargs
 
+def psnr_mssim_calc(args_input=None, args_output=None):
+    if args_input[-1] is not '/':
+        args_input += '/'
 
-if __name__ == "__main__":
-    args = parse_args()
-    if args.input[-1] is not '/':
-        args.input += '/'
+    if args_output[-1] is not '/':
+        args_output += '/'
 
-    if args.output[-1] is not '/':
-        args.output += '/'
+    if not os.path.exists(args_output):
+        os.mkdir(args_output)
 
-    if not os.path.exists(args.output):
-        os.mkdir(args.output)
-
-    w, h, _ = np.array(Image.open(os.path.join, "im1.png")).shape
+    w, h, _ = np.array(Image.open(os.path.join(args_input, "im1.png"))).shape
     testtfprvs = tf.placeholder(tf.float32, shape=[w, h, 3], name="testfirst_frame")
     testtfnext = tf.placeholder(tf.float32, shape=[w, h, 3], name="testsecond_frame")
 
@@ -46,7 +44,7 @@ if __name__ == "__main__":
     testinit = tf.global_variables_initializer()
 
     num_frames = 0
-    for item in os.listdir(args.input):
+    for _ in os.listdir(args_input):
         num_frames += 1
 
     with tf.Session() as sess:
@@ -55,8 +53,8 @@ if __name__ == "__main__":
         totmsssim = 0
         count = 0
         for i in range(1, num_frames + 1):
-            tenFirst = np.array(Image.open(args.input + 'im' + str(i) + '.png')).astype(np.float32)
-            tenSecond = np.array(Image.open(args.output + 'im' + str(i) + '.png')).astype(np.float32)
+            tenFirst = np.array(Image.open(args_input + 'im' + str(i) + '.png')).astype(np.float32)
+            tenSecond = np.array(Image.open(args_output + str(i) + '.png')).astype(np.float32)
             ps, msim = sess.run([psnr, msssim], feed_dict={testtfprvs: tenFirst, testtfnext: tenSecond})
             # print(ps, msim)
             totpsnr += ps
@@ -65,3 +63,9 @@ if __name__ == "__main__":
 
         print("Average")
         print("psnr = {:.8f}, ms-ssim ={:.8f}".format(totpsnr / count, totmsssim / count))
+        return totpsnr / count, totmsssim / count
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    psnr_mssim_calc(args.input, args.output)
